@@ -1,5 +1,6 @@
 import os
 import time
+import numpy
 import torch.nn as nn
 from transformers import AdamW, get_linear_schedule_with_warmup
 from tqdm import tqdm
@@ -64,11 +65,20 @@ class Framework(object):
         for epoch in range(1, self.config.epochs_num + 1):
             print('Training...')
             self.model.train()
-            for i, (idx, d_t, t_v, token, seg, mask, t_index, r_pos, t_m, t_s, t_e, a_s, a_e, a_m) in enumerate(train_loader):
+            for i, (idx, d_t, t_v, token, seg, mask, t_index, r_pos, t_m, t_s, t_e, a_s, a_e, a_m, tokens_syntac_ids) in enumerate(train_loader):
+                # lattice = []
+                # for j in range(len(idx)):
+                #     code = sets['train'][idx[j]]
+                #     list = datasets['train'].field_arrays['lattice'][code]
+                #     lattice = lattice + list
+                # lattice = numpy.array(lattice).reshape(len(idx),-1)
+                # lattice = torch.tensor(lattice, dtype=torch.int64)
+                # lattice_embed = embeddings['lattice'](lattice)
                 self.model.zero_grad()
                 d_t = torch.LongTensor(d_t).to(self.config.device)
                 t_v = torch.FloatTensor(t_v).to(self.config.device)
                 token = torch.LongTensor(token).to(self.config.device)
+                tokens_syntac_ids = torch.LongTensor(tokens_syntac_ids).to(self.config.device)
                 seg = torch.LongTensor(seg).to(self.config.device)
                 mask = torch.LongTensor(mask).to(self.config.device)
                 r_pos = torch.LongTensor(r_pos).to(self.config.device)
@@ -78,7 +88,8 @@ class Framework(object):
                 a_s = torch.FloatTensor(a_s).to(self.config.device)
                 a_e = torch.FloatTensor(a_e).to(self.config.device)
                 a_m = torch.LongTensor(a_m).to(self.config.device)
-                loss, type_loss, trigger_loss, args_loss = self.model(token, seg, mask, d_t, t_v, t_s, t_e, r_pos, t_m, a_s, a_e, a_m)
+                loss, type_loss, trigger_loss, args_loss = self.model(token, seg, mask, d_t, t_v, t_s, t_e, r_pos, t_m, a_s, a_e, a_m, tokens_syntac_ids)
+
                 if torch.cuda.device_count() > 1:
                     loss = torch.mean(loss)
                     type_loss = torch.mean(type_loss)
@@ -91,17 +102,20 @@ class Framework(object):
                 ae_loss += args_loss.item()
 
                 if (i + 1) % self.config.report_steps == 0:
+
                     print("Epoch id: {}, Training steps: {}, ED loss:{:.6f},TE loss:{:.6f}, AE loss:{:.6f},  Avg loss: {:.6f}".format(epoch, i + 1, ed_loss / self.config.report_steps, te_loss / self.config.report_steps, ae_loss / self.config.report_steps,
                                                                                                                                       total_loss / self.config.report_steps))
                     total_loss = 0.0
                     ed_loss = 0.0
                     te_loss = 0.0
                     ae_loss = 0.0
+
                 if self.config.fp16:
                     with amp.scale_loss(loss, optimizer) as scaled_loss:
                         scaled_loss.backward()
                 else:
                     loss.backward()
+
                 optimizer.step()
                 scheduler.step()
 
@@ -119,6 +133,21 @@ class Framework(object):
                 best_epoch = epoch
                 save_model(self.model, self.config.output_model_path)
             print("The Best F1 Is: {:.3f}, When Epoch Is: {}".format(best_f1, best_epoch))
+
+    def extra_bigrams(self, train_loader, dev_loader):
+        print('Get global bigram...')
+        # f = open('./global_bigram.txt','w',encoding='utf-8')
+        global_bigram = torch.zeros(1, 768).to(self.config.device)
+        for i, (idx, d_t, t_v, token, seg, mask, t_index, r_pos, t_m, t_s, t_e, a_s, a_e, a_m, tokens_syntac_ids) in tqdm(enumerate(train_loader)):
+            token = torch.LongTensor(token).to(self.config.device)
+            seg = torch.LongTensor(seg).to(self.config.device)
+            mask = torch.LongTensor(mask).to(self.config.device)
+            t_m = torch.LongTensor(t_m).to(self.config.device)
+            tmp = self.model.get_bigram_emb(token, mask, t_m, seg)
+            bigram_emb = tmp.clone().detach().requires_grad_(False)
+            global_bigram = torch.cat([global_bigram, bigram_emb], dim=0)
+        global_bigram = global_bigram[torch.arange(global_bigram.size(0)) != 0]
+        print('end')
 
     def evaluate_with_oracle(self, config, model, dev_data_loader, device, ty_args_id, id2type):
         if hasattr(model, "module"):

@@ -1,0 +1,7 @@
+.vscode/
+cache/
+models_save/
+NeuralSegmentation/
+plm/
+*.pdf
+__pycache__/

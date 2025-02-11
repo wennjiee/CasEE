@@ -86,6 +86,7 @@ def process(records):
 
 
 def main():
+
     train = load_data('./datasets/FewFC/data/train.json')
     train = process(train)
     write(train, './datasets/FewFC/cascading_sampled/train.json')

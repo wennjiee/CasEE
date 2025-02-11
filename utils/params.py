@@ -31,7 +31,7 @@ def parse_args():
     parser.add_argument("--do_test", default=True, type=str2bool)
 
     parser.add_argument("--output_result_path", type=str, default='models_save/results.json')
-    parser.add_argument("--output_model_path", default="./models_save/model.bin", type=str, help="Path of the output model.")
+    parser.add_argument("--output_model_path", default="./models_save/ours_1FusionD.bin", type=str, help="Path of the output model.")
 
     parser.add_argument("--model_name_or_path", default="bert-base-chinese", type=str, help="Path of the output model.")
     parser.add_argument("--cache_dir", default="./plm", type=str, help="Where do you want to store the pre-trained models downloaded")
@@ -46,8 +46,8 @@ def parse_args():
     parser.add_argument("--lr_bert", type=float, default=2e-5, help="Learning rate for BERT.")
     parser.add_argument("--lr_task", type=float, default=1e-4, help="Learning rate for task layers.")
     parser.add_argument("--warmup", type=float, default=0.1, help="Warm up value.")
-    parser.add_argument("--batch_size", type=int, default=8, help="Batch_size.")
-    parser.add_argument("--epochs_num", type=int, default=20, help="Number of epochs.")
+    parser.add_argument("--batch_size", type=int, default=1, help="Batch_size.")
+    parser.add_argument("--epochs_num", type=int, default=100, help="Number of epochs.")
     parser.add_argument("--report_steps", type=int, default=5, help="Specific steps to print prompt.")
 
     parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay value")

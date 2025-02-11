@@ -51,6 +51,9 @@ def read_labeled_data(fn):
     data_triggers = []
     data_index = []
     data_args = []
+    
+    data_syntac = []
+    data_synhead = []
     for line in lines:
         line_dict = json.loads(line.strip())
         data_ids.append(line_dict.get('id', 0))
@@ -60,7 +63,10 @@ def read_labeled_data(fn):
         data_index.append(line_dict['index'])
         data_triggers.append(line_dict['triggers'])
         data_args.append(line_dict['args'])
-    return data_ids, data_occur, data_type, data_content, data_triggers, data_index, data_args
+        
+        data_syntac.append(line_dict['sentence_label'])
+        data_synhead.append(line_dict['head_label'])
+    return data_ids, data_occur, data_type, data_content, data_triggers, data_index, data_args, data_syntac, data_synhead
 
 
 def read_unlabeled_data(fn):
@@ -69,11 +75,13 @@ def read_unlabeled_data(fn):
         lines = f.readlines()
     data_ids = []
     data_content = []
+    data_syntac = []
     for line in lines:
         line_dict = json.loads(line.strip())
         data_ids.append(line_dict['id'])
         data_content.append(line_dict['content'])
-    return data_ids, data_content
+        data_syntac.append(line_dict['sentence_label'])
+    return data_ids, data_content, data_syntac
 
 
 def get_relative_pos(start_idx, end_idx, length):
@@ -109,27 +117,29 @@ class Data(Dataset):
         self.type_num = len(type_id.keys())
 
         if self.task == 'eval_without_oracle':
-            data_ids, data_content = read_unlabeled_data(fn)
+            data_ids, data_content, data_syntac = read_unlabeled_data(fn)
             self.data_ids = data_ids
             self.data_content = data_content
-            tokens_ids, segs_ids, masks_ids = self.data_to_id(data_content)
+            tokens_ids, segs_ids, masks_ids, tokens_syntac_ids = self.data_to_id(data_content, data_syntac)
 
             self.token = tokens_ids
             self.seg = segs_ids
             self.mask = masks_ids
-
+            self.tokens_syntac_ids = tokens_syntac_ids
         else:
-            data_ids, data_occur, data_type, data_content, data_triggers, data_index, data_args = read_labeled_data(fn)
+            data_ids, data_occur, data_type, data_content, data_triggers, data_index, data_args, data_syntac, data_head\
+                = read_labeled_data(fn)
             self.data_ids = data_ids
             self.data_occur = data_occur
             self.data_triggers = data_triggers
             self.data_args = data_args
 
             self.data_content = data_content
-            tokens_ids, segs_ids, masks_ids = self.data_to_id(data_content)
+            tokens_ids, segs_ids, masks_ids, tokens_syntac_ids = self.data_to_id(data_content, data_syntac)
             self.token = tokens_ids
             self.seg = segs_ids
             self.mask = masks_ids
+            self.tokens_syntac_ids = tokens_syntac_ids
 
             data_type_id_s, type_vec_s = self.type_to_id(data_type, data_occur)
             self.data_type_id_s = data_type_id_s
@@ -173,7 +183,8 @@ class Data(Dataset):
                    self.t_e[index], \
                    self.a_s[index], \
                    self.a_e[index], \
-                   self.a_m[index]
+                   self.a_m[index], \
+                   self.tokens_syntac_ids[index]
         elif self.task == 'eval_with_oracle':
             return self.data_ids[index], \
                    self.data_type_id_s[index], \
@@ -195,10 +206,11 @@ class Data(Dataset):
         else:
             raise Exception('task not define !')
 
-    def data_to_id(self, data_contents):
+    def data_to_id(self, data_contents, data_syntac):
         tokens_ids = []
         segs_ids = []
         masks_ids = []
+        tokens_syntac_ids = []
         for i in range(len(self.data_ids)):
             data_content = data_contents[i]
             # default uncased
@@ -211,7 +223,11 @@ class Data(Dataset):
             tokens_ids.append(tokens)
             segs_ids.append(segs)
             masks_ids.append(masks)
-        return tokens_ids, segs_ids, masks_ids
+            
+            inputs_syntac = self.tokenizer.encode_plus(data_syntac[i], add_special_tokens=True, max_length=self.seq_len, truncation=True, padding='max_length')
+            tokens_syntac = inputs_syntac["input_ids"]
+            tokens_syntac_ids.append(tokens_syntac)
+        return tokens_ids, segs_ids, masks_ids, tokens_syntac_ids
 
     def type_to_id(self, data_type, data_occur):
         data_type_id_s, type_vec_s = [], []
@@ -302,7 +318,7 @@ class Data(Dataset):
         r_pos = []
         t_m = []
         for i in range(len(self.data_ids)):
-            trigger = triggers[i]
+            trigger = triggers[i] # self.data_content[i][s] - [end-1]
             index = data_index[i]
             span = trigger[index]
             # plus 1 for additional <CLS> token
@@ -334,8 +350,8 @@ def collate_fn_train(data):
     a_e, ground_truth of argument end
     a_m, unused; used to indicate the correlation between argument role and event type.
     '''
-    idx, dt, t_v, token, seg, mask, t_index, r_pos, t_m, t_s, t_e, a_s, a_e, a_m = zip(*data)
-    return idx, dt, t_v, token, seg, mask, t_index, r_pos, t_m, t_s, t_e, a_s, a_e, a_m
+    idx, dt, t_v, token, seg, mask, t_index, r_pos, t_m, t_s, t_e, a_s, a_e, a_m, token_syntac_ids = zip(*data)
+    return idx, dt, t_v, token, seg, mask, t_index, r_pos, t_m, t_s, t_e, a_s, a_e, a_m, token_syntac_ids
 
 
 def collate_fn_dev(data):
